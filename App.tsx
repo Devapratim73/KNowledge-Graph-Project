@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Notebook, GraphData, Node, EntityType } from './types';
-import { analyzeNotebookContent } from './services/geminiService';
+import { analyzeNotebookContent, generateGraphSummary } from './services/geminiService';
 import { extractTextFromFile } from './services/fileService';
 import GraphCanvas from './components/GraphCanvas';
 import { 
@@ -17,7 +17,9 @@ import {
   PlusIcon,
   DocumentTextIcon,
   TrashIcon,
-  DocumentIcon
+  DocumentIcon,
+  SparklesIcon,
+  BookOpenIcon
 } from '@heroicons/react/24/outline';
 
 const App: React.FC = () => {
@@ -27,18 +29,15 @@ const App: React.FC = () => {
   const [selectedNotebook, setSelectedNotebook] = useState<Notebook | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isSummarizing, setIsSummarizing] = useState(false);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [graphSummary, setGraphSummary] = useState<string | null>(null);
+  const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
   
   // Staged Files for Upload
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // New Notebook Form State
-  const [newNbTitle, setNewNbTitle] = useState('');
-  const [newNbContent, setNewNbContent] = useState('');
 
   useEffect(() => {
     const saved = localStorage.getItem('kg_ai_notebooks');
@@ -69,22 +68,6 @@ const App: React.FC = () => {
     }, 1200);
   };
 
-  const handleCreateNotebook = () => {
-    if (!newNbTitle || !newNbContent) return;
-    const nb: Notebook = {
-      id: Date.now().toString(),
-      name: newNbTitle,
-      lastModified: new Date().toLocaleDateString(),
-      contentSnippet: newNbContent
-    };
-    const updated = [nb, ...notebooks];
-    saveNotebooks(updated);
-    setNewNbTitle('');
-    setNewNbContent('');
-    setIsModalOpen(false);
-    handleImportNotebook(nb);
-  };
-
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       setStagedFiles(prev => [...prev, ...Array.from(e.target.files!)]);
@@ -100,6 +83,7 @@ const App: React.FC = () => {
     setIsAnalyzing(true);
     setGraphData(null);
     setSelectedNode(null);
+    setGraphSummary(null);
 
     try {
       const texts = await Promise.all(stagedFiles.map(file => extractTextFromFile(file)));
@@ -107,7 +91,6 @@ const App: React.FC = () => {
       
       const data = await analyzeNotebookContent(combinedContent);
       
-      // Auto-save as a composite notebook for the user
       const compositeNb: Notebook = {
         id: Date.now().toString(),
         name: stagedFiles.length === 1 ? stagedFiles[0].name : `Combined Analysis (${stagedFiles.length} files)`,
@@ -117,7 +100,7 @@ const App: React.FC = () => {
       
       setSelectedNotebook(compositeNb);
       setGraphData(data);
-      setStagedFiles([]); // Clear staging
+      setStagedFiles([]); 
     } catch (error) {
       console.error(error);
       alert("Analysis failed. Ensure valid Gemini API access.");
@@ -131,6 +114,7 @@ const App: React.FC = () => {
     setIsAnalyzing(true);
     setGraphData(null);
     setSelectedNode(null);
+    setGraphSummary(null);
 
     try {
       const data = await analyzeNotebookContent(notebook.contentSnippet);
@@ -139,6 +123,20 @@ const App: React.FC = () => {
       alert("Analysis failed.");
     } finally {
       setIsAnalyzing(false);
+    }
+  };
+
+  const handleGenerateSummary = async () => {
+    if (!graphData) return;
+    setIsSummarizing(true);
+    try {
+      const summary = await generateGraphSummary(graphData);
+      setGraphSummary(summary);
+      setIsSummaryModalOpen(true);
+    } catch (error) {
+      alert("Failed to generate summary.");
+    } finally {
+      setIsSummarizing(false);
     }
   };
 
@@ -305,6 +303,20 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </div>
+            ) : graphData ? (
+               <div className="bg-indigo-900/20 border border-indigo-500/20 rounded-2xl p-6 text-center animate-in fade-in slide-in-from-bottom-2">
+                <SparklesIcon className="h-10 w-10 text-indigo-400 mx-auto mb-4" />
+                <p className="text-[10px] font-black text-indigo-300 uppercase tracking-widest mb-2">Synthesis Ready</p>
+                <p className="text-[11px] text-slate-400 leading-relaxed mb-6 italic">Gemini has mapped the graph. Ready for a detailed point-wise write-up?</p>
+                <button 
+                  onClick={handleGenerateSummary}
+                  disabled={isSummarizing}
+                  className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black uppercase tracking-widest py-3 rounded-xl text-[10px] transition-all shadow-xl shadow-indigo-600/30 flex items-center justify-center gap-2"
+                >
+                  {isSummarizing ? <ArrowPathIcon className="h-3.5 w-3.5 animate-spin" /> : <SparklesIcon className="h-3.5 w-3.5" />}
+                  {isSummarizing ? 'Synthesizing...' : 'Generate Report'}
+                </button>
+              </div>
             ) : (
               <div className="bg-slate-900/30 border border-slate-800 rounded-2xl p-6 text-center">
                 <InformationCircleIcon className="h-10 w-10 text-slate-700 mx-auto mb-4 opacity-30" />
@@ -318,7 +330,7 @@ const App: React.FC = () => {
             <button 
               onClick={exportGraph}
               disabled={!graphData}
-              className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl px-4 py-3 text-xs font-black uppercase tracking-widest transition-all shadow-2xl shadow-indigo-600/30"
+              className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl px-4 py-3 text-xs font-black uppercase tracking-widest transition-all border border-slate-700"
             >
               <ArrowDownTrayIcon className="h-4 w-4" />
               Download Graph
@@ -341,6 +353,15 @@ const App: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-4">
+             {graphSummary && (
+                <button 
+                  onClick={() => setIsSummaryModalOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 rounded-full border border-indigo-500/30 text-[10px] font-black uppercase transition-all"
+                >
+                  <BookOpenIcon className="h-3.5 w-3.5" />
+                  View Report
+                </button>
+             )}
              <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-900/50 rounded-full border border-white/5">
                 <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></div>
                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">Gemini 3 Pro Engine</span>
@@ -382,6 +403,63 @@ const App: React.FC = () => {
               </button>
             </div>
           )}
+
+          {/* Summary Modal Overlay */}
+          {isSummaryModalOpen && graphSummary && (
+            <div className="absolute inset-0 z-[60] flex items-center justify-center p-4 sm:p-8 md:p-12 animate-in fade-in duration-300">
+               <div 
+                 className="absolute inset-0 bg-slate-950/40 backdrop-blur-sm cursor-pointer" 
+                 onClick={() => setIsSummaryModalOpen(false)}
+               />
+               <div className="relative w-full max-w-4xl max-h-[85vh] bg-slate-900/90 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-300">
+                  <div className="p-8 border-b border-white/5 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="p-3 bg-indigo-500/20 rounded-2xl text-indigo-400">
+                        <SparklesIcon className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-black text-white uppercase tracking-tight">Synthesis Report</h3>
+                        <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Point-wise Write-up • Gemini AI Insight</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => setIsSummaryModalOpen(false)} 
+                      className="p-3 hover:bg-white/5 rounded-2xl transition-all"
+                    >
+                      <XMarkIcon className="h-6 w-6 text-slate-400" />
+                    </button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-8 sm:p-12 prose prose-invert prose-sm max-w-none">
+                     <div className="space-y-6 text-slate-300 leading-relaxed">
+                        {graphSummary.split('\n').map((line, i) => {
+                          if (line.startsWith('**') || line.includes(':')) {
+                            const [title, ...rest] = line.split(':');
+                            return (
+                              <div key={i} className="mb-4">
+                                <span className="text-indigo-400 font-black uppercase text-xs tracking-widest block mb-2">{title.replace(/\*/g, '')}</span>
+                                <p className="text-sm text-slate-400">{rest.join(':')}</p>
+                              </div>
+                            );
+                          }
+                          if (line.trim().startsWith('-') || line.trim().startsWith('*')) {
+                            return <li key={i} className="ml-4 list-disc text-sm text-slate-300 mb-2">{line.trim().substring(1).trim()}</li>;
+                          }
+                          return <p key={i} className="text-sm">{line}</p>;
+                        })}
+                     </div>
+                  </div>
+                  <div className="p-8 bg-slate-950/30 border-t border-white/5 flex items-center justify-between">
+                    <p className="text-[10px] text-slate-600 font-black uppercase tracking-widest italic">Analysis completed by KnowledgeGraph AI Synthesis Engine</p>
+                    <button 
+                      onClick={() => setIsSummaryModalOpen(false)}
+                      className="bg-indigo-600 hover:bg-indigo-500 px-6 py-2.5 rounded-xl text-[10px] font-black text-white uppercase tracking-widest transition-all"
+                    >
+                      Return to Map
+                    </button>
+                  </div>
+               </div>
+            </div>
+          )}
         </main>
         
         <footer className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-3">
@@ -392,7 +470,7 @@ const App: React.FC = () => {
               <div className="h-1 w-1 rounded-full bg-indigo-500"></div>
               <span>MAP</span>
            </div>
-           <p className="text-[9px] text-slate-700 font-black uppercase tracking-widest">Created by Dr Devapratim Mohanty • Professional V2.2</p>
+           <p className="text-[9px] text-slate-700 font-black uppercase tracking-widest">Created by Dr Devapratim Mohanty • Professional V2.3</p>
         </footer>
       </div>
     </div>
