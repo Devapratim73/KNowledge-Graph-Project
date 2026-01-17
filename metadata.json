@@ -1,0 +1,6 @@
+{
+  "name": "KnowledgeGraph AI",
+  "description": "Transform notebook content into interactive, clustered knowledge graphs using Gemini-powered entity extraction and D3.js visualization. Created by Dr Devapratim Mohanty.",
+  "creator": "Dr Devapratim Mohanty",
+  "requestFramePermissions": []
+}
